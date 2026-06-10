@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canvas Gridder</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #121212;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h1 { font-size: 1.5rem; margin-bottom: 20px; }
+
+        .controls {
+            width: 100%;
+            max-width: 400px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            font-size: 0.9rem;
+            color: #aaa;
+        }
+
+        select, input[type="file"] {
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #333;
+            background-color: #1e1e1e;
+            color: white;
+            font-size: 1rem;
+        }
+
+        .canvas-container {
+            width: 100%;
+            max-width: 400px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #1e1e1e;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+
+        canvas {
+            max-width: 100%;
+            height: auto;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Canvas Grid Overlay</h1>
+
+    <div class="controls">
+        <label>
+            1. Choose Photo
+            <input type="file" id="imageLoader" accept="image/*">
+        </label>
+
+        <label>
+            2. Select Canvas Size (Grid)
+            <select id="canvasSize">
+                <option value="8:10:4">8" x 10" (4x5 Grid)</option>
+                <option value="11:14:4">11" x 14" (Approx 4x5 Grid)</option>
+                <option value="12:12:4">12" x 12" (4x4 Square Grid)</option>
+                <option value="16:20:4">16" x 20" (4x5 Grid)</option>
+                <option value="18:24:6">18" x 24" (3x4 Grid)</option>
+            </select>
+        </label>
+    </div>
+
+    <div class="canvas-container">
+        <canvas id="imageCanvas"></canvas>
+    </div>
+
+    <script>
+        const imageLoader = document.getElementById('imageLoader');
+        const canvasSizeSelect = document.getElementById('canvasSize');
+        const canvas = document.getElementById('imageCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let originalImage = null;
+
+        imageLoader.addEventListener('change', handleImage, false);
+        canvasSizeSelect.addEventListener('change', drawEverything, false);
+
+        function handleImage(e) {
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                originalImage = new Image();
+                originalImage.onload = function() {
+                    drawEverything();
+                }
+                originalImage.src = event.target.result;
+            }
+            reader.readAsDataURL(e.target.files[0]);
+        }
+
+        function drawEverything() {
+            if (!originalImage) return;
+
+            // 1. Parse Canvas Option (Width Ratio : Height Ratio : Number of Grid Divisions)
+            const [targetWidthRatio, targetHeightRatio, divisions] = canvasSizeSelect.value.split(':').map(Number);
+            
+            // Handle orientation dynamically based on original image
+            let targetAspect = targetWidthRatio / targetHeightRatio;
+            if (originalImage.width < originalImage.height && targetWidthRatio > targetHeightRatio) {
+                // If photo is portrait, flip canvas aspect to portrait too
+                targetAspect = targetHeightRatio / targetWidthRatio;
+            }
+
+            // 2. Calculate source image cropping (Best Fit / Cover)
+            const imgAspect = originalImage.width / originalImage.height;
+            let srcX = 0, srcY = 0, srcWidth = originalImage.width, srcHeight = originalImage.height;
+
+            if (imgAspect > targetAspect) {
+                // Image is wider than target canvas -> crop sides
+                srcWidth = originalImage.height * targetAspect;
+                srcX = (originalImage.width - srcWidth) / 2;
+            } else {
+                // Image is taller than target canvas -> crop top/bottom
+                srcHeight = originalImage.width / targetAspect;
+                srcY = (originalImage.height - srcHeight) / 2;
+            }
+
+            // 3. Set display canvas dimensions (Scale down for mobile view performance)
+            const displayWidth = Math.min(window.innerWidth - 40, 400); 
+            canvas.width = displayWidth;
+            canvas.height = displayWidth / targetAspect;
+
+            // 4. Draw cropped image onto canvas
+            ctx.drawImage(originalImage, srcX, srcY, srcWidth, srcHeight, 0, 0, canvas.width, canvas.height);
+
+            // 5. Draw the Grid Overlay
+            drawGrid(canvas.width, canvas.height, divisions, targetAspect);
+        }
+
+        function drawGrid(w, h, divisions, aspect) {
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)'; // White lines
+            ctx.lineWidth = 2;
+            
+            // Let's establish columns and rows based on the ratio aspect
+            // If aspect > 1 (Landscape), width gets more divisions. If < 1 (Portrait), height gets more.
+            let cols = divisions;
+            let rows = divisions;
+            
+            if (aspect > 1) {
+                rows = Math.round(divisions / aspect);
+            } else {
+                cols = Math.round(divisions * aspect);
+            }
+
+            // Draw Vertical Lines
+            for (let i = 1; i < cols; i++) {
+                let x = (w / cols) * i;
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, h);
+                ctx.stroke();
+            }
+
+            // Draw Horizontal Lines
+            for (let j = 1; j < rows; j++) {
+                let y = (h / rows) * j;
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(w, y);
+                ctx.stroke();
+            }
+
+            // Draw Outer Wireframe Border
+            ctx.strokeStyle = '#00E676'; // Neon green outer crop box
+            ctx.lineWidth = 4;
+            ctx.strokeRect(0, 0, w, h);
+        }
+    </script>
+</body>
+</html>
