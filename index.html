@@ -16,7 +16,10 @@
             align-items: center;
         }
 
-        h1 { font-size: 1.5rem; margin-bottom: 20px; }
+        h1 { 
+            font-size: 1.5rem; 
+            margin-bottom: 20px; 
+        }
 
         .controls {
             width: 100%;
@@ -42,6 +45,25 @@
             background-color: #1e1e1e;
             color: white;
             font-size: 1rem;
+        }
+
+        button {
+            padding: 14px;
+            border-radius: 8px;
+            border: none;
+            background-color: #00E676;
+            color: #121212;
+            font-weight: bold;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background 0.2s;
+            margin-top: 5px;
+        }
+
+        button:disabled {
+            background-color: #333;
+            color: #777;
+            cursor: not-allowed;
         }
 
         .canvas-container {
@@ -83,6 +105,8 @@
                 <option value="18:24:6">18" x 24" (3x4 Grid)</option>
             </select>
         </label>
+
+        <button id="saveButton" disabled>3. Save Gridded Image</button>
     </div>
 
     <div class="canvas-container">
@@ -92,6 +116,7 @@
     <script>
         const imageLoader = document.getElementById('imageLoader');
         const canvasSizeSelect = document.getElementById('canvasSize');
+        const saveButton = document.getElementById('saveButton');
         const canvas = document.getElementById('imageCanvas');
         const ctx = canvas.getContext('2d');
 
@@ -99,6 +124,23 @@
 
         imageLoader.addEventListener('change', handleImage, false);
         canvasSizeSelect.addEventListener('change', drawEverything, false);
+
+        // Save Image Event Listener
+        saveButton.addEventListener('click', () => {
+            if (!originalImage) return;
+
+            // Convert canvas data to JPEG data URL at 90% quality
+            const imageURI = canvas.toDataURL('image/jpeg', 0.9);
+            
+            // Create a virtual anchor link to trigger download
+            const link = document.createElement('a');
+            link.download = 'gridded-canvas-photo.jpg';
+            link.href = imageURI;
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
 
         function handleImage(e) {
             const reader = new FileReader();
@@ -139,7 +181,7 @@
                 srcY = (originalImage.height - srcHeight) / 2;
             }
 
-            // 3. Set display canvas dimensions (Scale down for mobile view performance)
+            // 3. Set display canvas dimensions (Scaled down for mobile view performance)
             const displayWidth = Math.min(window.innerWidth - 40, 400); 
             canvas.width = displayWidth;
             canvas.height = displayWidth / targetAspect;
@@ -149,14 +191,16 @@
 
             // 5. Draw the Grid Overlay
             drawGrid(canvas.width, canvas.height, divisions, targetAspect);
+
+            // 6. Enable the Save button
+            saveButton.disabled = false;
         }
 
         function drawGrid(w, h, divisions, aspect) {
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)'; // White lines
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)'; // White grid lines
             ctx.lineWidth = 2;
             
-            // Let's establish columns and rows based on the ratio aspect
-            // If aspect > 1 (Landscape), width gets more divisions. If < 1 (Portrait), height gets more.
+            // Establish columns and rows based on the ratio aspect
             let cols = divisions;
             let rows = divisions;
             
