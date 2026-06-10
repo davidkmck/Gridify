@@ -106,12 +106,14 @@
             </select>
         </label>
 
-        <button id="saveButton" disabled>3. Save Gridded Image</button>
+        <button id="saveButton" disabled>3. Save High-Res Image</button>
     </div>
 
     <div class="canvas-container">
         <canvas id="imageCanvas"></canvas>
     </div>
+
+    <canvas id="hiddenExportCanvas" style="display: none;"></canvas>
 
     <script>
         const imageLoader = document.getElementById('imageLoader');
@@ -119,6 +121,9 @@
         const saveButton = document.getElementById('saveButton');
         const canvas = document.getElementById('imageCanvas');
         const ctx = canvas.getContext('2d');
+        
+        const hiddenCanvas = document.getElementById('hiddenExportCanvas');
+        const hiddenCtx = hiddenCanvas.getContext('2d');
 
         let originalImage = null;
 
@@ -129,12 +134,52 @@
         saveButton.addEventListener('click', () => {
             if (!originalImage) return;
 
-            // Convert canvas data to JPEG data URL at 90% quality
-            const imageURI = canvas.toDataURL('image/jpeg', 0.9);
+            // 1. Prompt user for a unique file name
+            let defaultName = "gridded_" + new Date().toISOString().slice(0,10); // e.g., gridded_2026-06-10
+            let userInput = prompt("Enter a unique name for your high-res gridded image:", defaultName);
             
-            // Create a virtual anchor link to trigger download
+            // If user hits cancel, stop the process
+            if (userInput === null) return;
+
+            // Sanitize file name (remove characters that OS filesystems hate)
+            let chosenName = userInput.trim().replace(/[^a-zA-Z0-9-_ ]/g, '');
+            if (!chosenName) chosenName = defaultName;
+
+            // 2. Parse target layout options
+            const [targetWidthRatio, targetHeightRatio, divisions] = canvasSizeSelect.value.split(':').map(Number);
+            let targetAspect = targetWidthRatio / targetHeightRatio;
+            if (originalImage.width < originalImage.height && targetWidthRatio > targetHeightRatio) {
+                targetAspect = targetHeightRatio / targetWidthRatio;
+            }
+
+            // 3. Calculate source photo cropping coordinates based on original image data
+            const imgAspect = originalImage.width / originalImage.height;
+            let srcX = 0, srcY = 0, srcWidth = originalImage.width, srcHeight = originalImage.height;
+
+            if (imgAspect > targetAspect) {
+                srcWidth = originalImage.height * targetAspect;
+                srcX = (originalImage.width - srcWidth) / 2;
+            } else {
+                srcHeight = originalImage.width / targetAspect;
+                srcY = (originalImage.height - srcHeight) / 2;
+            }
+
+            // 4. Force the hidden canvas to match the actual raw, high-res width and height of the crop box
+            hiddenCanvas.width = srcWidth;
+            hiddenCanvas.height = srcHeight;
+
+            // 5. Draw the uncompressed original picture resolution onto hidden canvas
+            hiddenCtx.drawImage(originalImage, srcX, srcY, srcWidth, srcHeight, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
+            
+            // 6. Scale the grid line thickness proportionally to image resolution
+            // (A 3000px wide image gets roughly a 10px line so it remains completely readable when zooming)
+            const highResLineThickness = Math.max(2, Math.round(hiddenCanvas.width / 300));
+            drawGridOnCanvas(hiddenCanvas, hiddenCtx, divisions, targetAspect, highResLineThickness);
+
+            // 7. Extract high-res JPEG at 95% quality and download
+            const imageURI = hiddenCanvas.toDataURL('image/jpeg', 0.95);
             const link = document.createElement('a');
-            link.download = 'gridded-canvas-photo.jpg';
+            link.download = `${chosenName}.jpg`;
             link.href = imageURI;
             
             document.body.appendChild(link);
@@ -157,50 +202,46 @@
         function drawEverything() {
             if (!originalImage) return;
 
-            // 1. Parse Canvas Option (Width Ratio : Height Ratio : Number of Grid Divisions)
             const [targetWidthRatio, targetHeightRatio, divisions] = canvasSizeSelect.value.split(':').map(Number);
             
-            // Handle orientation dynamically based on original image
             let targetAspect = targetWidthRatio / targetHeightRatio;
             if (originalImage.width < originalImage.height && targetWidthRatio > targetHeightRatio) {
-                // If photo is portrait, flip canvas aspect to portrait too
                 targetAspect = targetHeightRatio / targetWidthRatio;
             }
 
-            // 2. Calculate source image cropping (Best Fit / Cover)
             const imgAspect = originalImage.width / originalImage.height;
             let srcX = 0, srcY = 0, srcWidth = originalImage.width, srcHeight = originalImage.height;
 
             if (imgAspect > targetAspect) {
-                // Image is wider than target canvas -> crop sides
                 srcWidth = originalImage.height * targetAspect;
                 srcX = (originalImage.width - srcWidth) / 2;
             } else {
-                // Image is taller than target canvas -> crop top/bottom
                 srcHeight = originalImage.width / targetAspect;
                 srcY = (originalImage.height - srcHeight) / 2;
             }
 
-            // 3. Set display canvas dimensions (Scaled down for mobile view performance)
+            // Screen View Canvas Size (Kept small so rendering stays fast on phone processors)
             const displayWidth = Math.min(window.innerWidth - 40, 400); 
             canvas.width = displayWidth;
             canvas.height = displayWidth / targetAspect;
 
-            // 4. Draw cropped image onto canvas
+            // Draw presentation view
             ctx.drawImage(originalImage, srcX, srcY, srcWidth, srcHeight, 0, 0, canvas.width, canvas.height);
 
-            // 5. Draw the Grid Overlay
-            drawGrid(canvas.width, canvas.height, divisions, targetAspect);
+            // Draw small 2px grid lines for the mobile screen view
+            drawGridOnCanvas(canvas, ctx, divisions, targetAspect, 2);
 
-            // 6. Enable the Save button
             saveButton.disabled = false;
         }
 
-        function drawGrid(w, h, divisions, aspect) {
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)'; // White grid lines
-            ctx.lineWidth = 2;
+        // Shared utility function that handles drawing grid mathematics on any size canvas
+        function drawGridOnCanvas(targetCanvas, targetCtx, divisions, aspect, strokeWidth) {
+            const w = targetCanvas.width;
+            const h = targetCanvas.height;
             
-            // Establish columns and rows based on the ratio aspect
+            targetCtx.strokeStyle = 'rgba(255, 255, 255, 0.8)'; // White grid
+            targetCtx.lineWidth = strokeWidth;
+            
             let cols = divisions;
             let rows = divisions;
             
@@ -213,25 +254,25 @@
             // Draw Vertical Lines
             for (let i = 1; i < cols; i++) {
                 let x = (w / cols) * i;
-                ctx.beginPath();
-                ctx.moveTo(x, 0);
-                ctx.lineTo(x, h);
-                ctx.stroke();
+                targetCtx.beginPath();
+                targetCtx.moveTo(x, 0);
+                targetCtx.lineTo(x, h);
+                targetCtx.stroke();
             }
 
             // Draw Horizontal Lines
             for (let j = 1; j < rows; j++) {
                 let y = (h / rows) * j;
-                ctx.beginPath();
-                ctx.moveTo(0, y);
-                ctx.lineTo(w, y);
-                ctx.stroke();
+                targetCtx.beginPath();
+                targetCtx.moveTo(0, y);
+                targetCtx.lineTo(w, y);
+                targetCtx.stroke();
             }
 
-            // Draw Outer Wireframe Border
-            ctx.strokeStyle = '#00E676'; // Neon green outer crop box
-            ctx.lineWidth = 4;
-            ctx.strokeRect(0, 0, w, h);
+            // Draw Outer crop box layout boundary
+            targetCtx.strokeStyle = '#00E676'; // Neon green wireframe
+            targetCtx.lineWidth = strokeWidth * 2;
+            targetCtx.strokeRect(0, 0, w, h);
         }
     </script>
 </body>
